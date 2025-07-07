@@ -101,7 +101,7 @@
         // Initialize the map
         const map = new maplibregl.Map({
             container: 'map',
-            style: 'https://demotiles.maplibre.org/style.json',
+            style: 'https://api.maptiler.com/maps/streets-v2/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL', // Detailed street map
             center: [144.955, -37.825], // Start at Melbourne
             zoom: 16,
             pitch: 0,
@@ -554,21 +554,89 @@
             // Log the source data to verify
             console.log('Map source added with features:', buildingData.features.length);
 
-            // Add building layer (2D)
+            // Add building layers
+            addBuildingLayers();
+            
+            // Add event listeners
+            addBuildingEventListeners();
+        });
+
+        // Navigation functions
+        function flyToMelbourne() {
+            map.flyTo({
+                center: [144.955, -37.825],
+                zoom: 16,
+                pitch: extrusionEnabled ? 45 : 0,
+                duration: 2000
+            });
+        }
+
+        function flyToDubai() {
+            map.flyTo({
+                center: [55.1507304, 24.9607418],
+                zoom: 15,
+                pitch: extrusionEnabled ? 45 : 0,
+                duration: 2000
+            });
+        }
+
+        function toggleExtrusion() {
+            extrusionEnabled = !extrusionEnabled;
+            
+            if (extrusionEnabled) {
+                map.setLayoutProperty('buildings-2d', 'visibility', 'none');
+                map.setLayoutProperty('buildings-outline', 'visibility', 'none');
+                map.setLayoutProperty('buildings-3d', 'visibility', 'visible');
+                map.setPitch(45);
+            } else {
+                map.setLayoutProperty('buildings-2d', 'visibility', 'visible');
+                map.setLayoutProperty('buildings-outline', 'visibility', 'visible');
+                map.setLayoutProperty('buildings-3d', 'visibility', 'none');
+                map.setPitch(0);
+            }
+        }
+
+        // Change basemap function
+        function changeBasemap() {
+            const selectedBasemap = document.getElementById('basemap-select').value;
+            const newStyle = basemapStyles[selectedBasemap];
+            
+            // Store the current buildings data
+            const buildingsData = map.getSource('buildings')?._data;
+            
+            // Set the new style
+            map.setStyle(newStyle);
+            
+            // Re-add building layers when style loads
+            map.once('style.load', () => {
+                if (buildingsData) {
+                    // Re-add building source
+                    map.addSource('buildings', {
+                        'type': 'geojson',
+                        'data': buildingsData
+                    });
+                    
+                    // Re-add all the building layers
+                    addBuildingLayers();
+                    
+                    // Re-add event listeners
+                    addBuildingEventListeners();
+                }
+            });
+        }
+
+        // Function to add building layers
+        function addBuildingLayers() {
+            // Add building layer (2D) - using default OSM building style
             map.addLayer({
                 'id': 'buildings-2d',
                 'type': 'fill',
                 'source': 'buildings',
                 'layout': {},
                 'paint': {
-                    'fill-color': [
-                        'case',
-                        ['==', ['get', 'area'], 'melbourne'], '#007cbf',
-                        ['==', ['get', 'area'], 'dubai'], '#ff6b35',
-                        ['==', ['get', 'custom'], true], '#28a745',
-                        '#6c757d'
-                    ],
-                    'fill-opacity': 0.7
+                    'fill-color': '#d6d1ca', // Default OSM building color
+                    'fill-opacity': 0.7,
+                    'fill-outline-color': '#a8a08a'
                 }
             });
 
@@ -579,14 +647,8 @@
                 'source': 'buildings',
                 'layout': {},
                 'paint': {
-                    'line-color': [
-                        'case',
-                        ['==', ['get', 'area'], 'melbourne'], '#005a8b',
-                        ['==', ['get', 'area'], 'dubai'], '#cc5429',
-                        ['==', ['get', 'custom'], true], '#1e7e34',
-                        '#495057'
-                    ],
-                    'line-width': 2
+                    'line-color': '#a8a08a', // Default OSM building outline
+                    'line-width': 1
                 }
             });
 
@@ -596,30 +658,32 @@
                 'type': 'fill-extrusion',
                 'source': 'buildings',
                 'layout': {
-                    'visibility': 'none'
+                    'visibility': extrusionEnabled ? 'visible' : 'none'
                 },
                 'paint': {
-                    'fill-extrusion-color': [
-                        'case',
-                        ['==', ['get', 'area'], 'melbourne'], '#007cbf',
-                        ['==', ['get', 'area'], 'dubai'], '#ff6b35',
-                        ['==', ['get', 'custom'], true], '#28a745',
-                        '#6c757d'
-                    ],
+                    'fill-extrusion-color': '#d6d1ca', // Default OSM building color
                     'fill-extrusion-height': ['get', 'height'],
                     'fill-extrusion-base': 0,
                     'fill-extrusion-opacity': 0.8
                 }
             });
+            
+            // Update layer visibility based on current extrusion state
+            if (extrusionEnabled) {
+                map.setLayoutProperty('buildings-2d', 'visibility', 'none');
+                map.setLayoutProperty('buildings-outline', 'visibility', 'none');
+                map.setLayoutProperty('buildings-3d', 'visibility', 'visible');
+            }
+        }
 
-            // Mouse enter event for hover effects
+        // Function to add building event listeners
+        function addBuildingEventListeners() {
+            // Mouse enter event for hover effects (2D)
             map.on('mouseenter', 'buildings-2d', (e) => {
                 map.getCanvas().style.cursor = 'pointer';
                 
                 const feature = e.features[0];
-                const coords = e.lngLat;
                 
-                // Show tooltip
                 tooltip.innerHTML = `
                     <strong>${feature.properties.name}</strong><br>
                     Type: ${feature.properties.type}<br>
@@ -627,7 +691,6 @@
                 `;
                 tooltip.style.display = 'block';
                 
-                // Highlight building
                 map.setPaintProperty('buildings-2d', 'fill-opacity', [
                     'case',
                     ['==', ['get', 'name'], feature.properties.name], 1.0,
@@ -635,33 +698,24 @@
                 ]);
             });
 
-            // Mouse leave event
             map.on('mouseleave', 'buildings-2d', () => {
                 map.getCanvas().style.cursor = '';
                 tooltip.style.display = 'none';
-                
-                // Reset highlight
                 map.setPaintProperty('buildings-2d', 'fill-opacity', 0.7);
             });
 
-            // Mouse move event for tooltip positioning
             map.on('mousemove', 'buildings-2d', (e) => {
                 const rect = map.getCanvas().getBoundingClientRect();
                 tooltip.style.left = e.point.x + rect.left + 10 + 'px';
                 tooltip.style.top = e.point.y + rect.top - 10 + 'px';
             });
 
-            // Click event for popup
             map.on('click', 'buildings-2d', (e) => {
                 const feature = e.features[0];
                 const coords = e.lngLat;
                 
-                // Close existing popup
-                if (popup) {
-                    popup.remove();
-                }
+                if (popup) popup.remove();
                 
-                // Create new popup
                 popup = new maplibregl.Popup({
                     closeButton: true,
                     closeOnClick: true
@@ -709,9 +763,7 @@
                 const feature = e.features[0];
                 const coords = e.lngLat;
                 
-                if (popup) {
-                    popup.remove();
-                }
+                if (popup) popup.remove();
                 
                 popup = new maplibregl.Popup({
                     closeButton: true,
@@ -730,41 +782,6 @@
                 `)
                 .addTo(map);
             });
-        });
-
-        // Navigation functions
-        function flyToMelbourne() {
-            map.flyTo({
-                center: [144.955, -37.825],
-                zoom: 16,
-                pitch: extrusionEnabled ? 45 : 0,
-                duration: 2000
-            });
-        }
-
-        function flyToDubai() {
-            map.flyTo({
-                center: [55.1507304, 24.9607418],
-                zoom: 15,
-                pitch: extrusionEnabled ? 45 : 0,
-                duration: 2000
-            });
-        }
-
-        function toggleExtrusion() {
-            extrusionEnabled = !extrusionEnabled;
-            
-            if (extrusionEnabled) {
-                map.setLayoutProperty('buildings-2d', 'visibility', 'none');
-                map.setLayoutProperty('buildings-outline', 'visibility', 'none');
-                map.setLayoutProperty('buildings-3d', 'visibility', 'visible');
-                map.setPitch(45);
-            } else {
-                map.setLayoutProperty('buildings-2d', 'visibility', 'visible');
-                map.setLayoutProperty('buildings-outline', 'visibility', 'visible');
-                map.setLayoutProperty('buildings-3d', 'visibility', 'none');
-                map.setPitch(0);
-            }
         }
 
         // Add navigation controls
