@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interactive MapLibre Map</title>
-    <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
-    <link href="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.css" rel="stylesheet">
+    <script src="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.css" rel="stylesheet">
     <style>
         body {
             margin: 0;
@@ -115,15 +115,40 @@
             
             try {
                 console.log('Attempting to load buildings.geojson...');
-                const response = await fetch('buildings.geojson');
-                console.log('Fetch response status:', response.status);
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+                // Try multiple possible paths for GitHub hosting
+                const possiblePaths = [
+                    './buildings.geojson',
+                    'buildings.geojson',
+                    './Buildings.geojson',
+                    'Buildings.geojson'
+                ];
+                
+                let response = null;
+                let workingPath = null;
+                
+                for (const path of possiblePaths) {
+                    try {
+                        console.log(`Trying path: ${path}`);
+                        response = await fetch(path);
+                        if (response.ok) {
+                            workingPath = path;
+                            break;
+                        }
+                    } catch (e) {
+                        console.log(`Path ${path} failed:`, e.message);
+                    }
                 }
                 
+                if (!response || !response.ok) {
+                    throw new Error(`Could not load GeoJSON file. Tried paths: ${possiblePaths.join(', ')}`);
+                }
+                
+                console.log(`Successfully loaded from: ${workingPath}`);
+                console.log('Fetch response status:', response.status);
+                
                 const data = await response.json();
-                console.log('Successfully loaded GeoJSON data');
+                console.log('Successfully parsed GeoJSON data');
                 console.log('Raw data structure:', data);
                 console.log('Number of features in file:', data.features?.length || 0);
                 
@@ -140,7 +165,17 @@
                     stack: error.stack
                 });
                 console.log('Using fallback data with custom building only');
-                alert('Could not load buildings.geojson file. Using fallback data.\n\nMake sure the file is in the same folder as index.html');
+                
+                // Show a more helpful error message
+                const errorMsg = `Could not load buildings.geojson file.\n\nPossible issues:\n- File not found in repository root\n- Case sensitivity (check filename)\n- File too large for GitHub\n- CORS issues\n\nUsing fallback data instead.`;
+                
+                // Only show alert in development (when localhost)
+                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                    alert(errorMsg);
+                } else {
+                    console.warn(errorMsg);
+                }
+                
                 return createFallbackData();
             } finally {
                 loading.classList.remove('show');
