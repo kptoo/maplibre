@@ -749,6 +749,11 @@
                 const feature = e.features[0];
                 const coords = e.lngLat;
                 
+                // Hide tooltip when popup opens
+                tooltip.style.display = 'none';
+                map.getCanvas().style.cursor = '';
+                
+                // Close existing popup
                 if (popup) popup.remove();
                 
                 popup = new maplibregl.Popup({
@@ -767,6 +772,14 @@
                     </div>
                 `)
                 .addTo(map);
+                
+                // Reset building opacity when popup opens
+                map.setPaintProperty('buildings-2d', 'fill-opacity', 0.7);
+                
+                // Ensure tooltip stays hidden while popup is open
+                popup.on('close', () => {
+                    popup = null;
+                });
             });
 
             // Same events for 3D layer
@@ -798,6 +811,10 @@
                 const feature = e.features[0];
                 const coords = e.lngLat;
                 
+                // Hide tooltip when popup opens
+                tooltip.style.display = 'none';
+                map.getCanvas().style.cursor = '';
+                
                 if (popup) popup.remove();
                 
                 popup = new maplibregl.Popup({
@@ -816,6 +833,11 @@
                     </div>
                 `)
                 .addTo(map);
+                
+                // Ensure tooltip stays hidden while popup is open
+                popup.on('close', () => {
+                    popup = null;
+                });
             });
         }
 
