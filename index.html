@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive MapLibre Map</title>
+    <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+        .maplibregl-popup {
+            max-width: 300px;
+        }
+        .maplibregl-popup-content {
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+        .building-popup {
+            padding: 10px;
+        }
+        .building-popup h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .building-popup p {
+            margin: 5px 0;
+            color: #666;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        .controls button {
+            margin: 5px;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 3px;
+            background: #007cbf;
+            color: white;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background: #005a8b;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 2000;
+            display: none;
+        }
+        .loading.show {
+            display: block;
+        }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="loading" id="loading">
+        <h3>Loading building data...</h3>
+        <p>Please wait while we load the GeoJSON file.</p>
+    </div>
+    <div class="controls">
+        <button onclick="flyToMelbourne()">Melbourne</button>
+        <button onclick="flyToDubai()">Dubai</button>
+        <button onclick="toggleExtrusion()">Toggle 3D</button>
+    </div>
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        // Initialize the map
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: 'https://demotiles.maplibre.org/style.json',
+            center: [144.955, -37.825], // Start at Melbourne
+            zoom: 16,
+            pitch: 0,
+            bearing: 0
+        });
+
+        // Function to load GeoJSON data from file
+        async function loadBuildingData() {
+            const loading = document.getElementById('loading');
+            loading.classList.add('show');
+            
+            try {
+                console.log('Attempting to load buildings.geojson...');
+                const response = await fetch('buildings.geojson');
+                console.log('Fetch response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Successfully loaded GeoJSON data');
+                console.log('Raw data structure:', data);
+                console.log('Number of features in file:', data.features?.length || 0);
+                
+                if (!data.features || data.features.length === 0) {
+                    console.warn('No features found in GeoJSON file');
+                    return createFallbackData();
+                }
+                
+                return processOverpassData(data);
+            } catch (error) {
+                console.error('Error loading building data:', error);
+                console.log('Error details:', {
+                    message: error.message,
+                    stack: error.stack
+                });
+                console.log('Using fallback data with custom building only');
+                alert('Could not load buildings.geojson file. Using fallback data.\n\nMake sure the file is in the same folder as index.html');
+                return createFallbackData();
+            } finally {
+                loading.classList.remove('show');
+            }
+        }
+
+        // Process Overpass data and add custom properties
+        function processOverpassData(data) {
+            data.features.forEach((feature, index) => {
+                const props = feature.properties;
+                
+                // Enhanced name selection with better fallbacks
+                let buildingName = null;
+                
+                // First priority: Actual names
+                if (props.name && props.name !== 'yes' && props.name !== 'building') {
+                    buildingName = props.name;
+                } else if (props.alt_name && props.alt_name !== 'yes') {
+                    buildingName = props.alt_name;
+                } else if (props.short_name && props.short_name !== 'yes') {
+                    buildingName = props.short_name;
+                } else if (props.brand && props.brand !== 'yes') {
+                    buildingName = props.brand;
+                } else if (props["addr:housename"]) {
+                    buildingName = props["addr:housename"];
+                }
+                
+                // Second priority: Address-based names
+                if (!buildingName && props["addr:housenumber"] && props["addr:street"]) {
+                    buildingName = `${props["addr:housenumber"]} ${props["addr:street"]}`;
+                } else if (!buildingName && props["addr:street"]) {
+                    buildingName = `Building on ${props["addr:street"]}`;
+                }
+                
+                // Third priority: Generate descriptive names based on function
+                if (!buildingName) {
+                    if (props.amenity && props.amenity !== 'yes') {
+                        const amenityNames = {
+                            'casino': 'Casino Complex',
+                            'exhibition_centre': 'Exhibition Centre',
+                            'convention_center': 'Convention Centre',
+                            'conference_centre': 'Conference Centre',
+                            'college': 'College Building',
+                            'university': 'University Building',
+                            'school': 'School Building',
+                            'hospital': 'Hospital Building',
+                            'hotel': 'Hotel Building',
+                            'restaurant': 'Restaurant',
+                            'bank': 'Bank Building',
+                            'library': 'Library Building',
+                            'museum': 'Museum Building',
+                            'theatre': 'Theatre Building',
+                            'cinema': 'Cinema Complex'
+                        };
+                        buildingName = amenityNames[props.amenity] || 
+                                     props.amenity.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' Building';
+                    } else if (props.shop && props.shop !== 'yes') {
+                        buildingName = props.shop.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        if (!buildingName.includes('Building') && !buildingName.includes('Centre') && !buildingName.includes('Mall')) {
+                            buildingName += ' Building';
+                        }
+                    } else if (props.building && props.building !== 'yes') {
+                        const buildingNames = {
+                            'commercial': 'Commercial Building',
+                            'office': 'Office Building',
+                            'retail': 'Retail Building',
+                            'residential': 'Residential Building',
+                            'hotel': 'Hotel Building',
+                            'industrial': 'Industrial Building',
+                            'warehouse': 'Warehouse Building',
+                            'hospital': 'Hospital Building',
+                            'school': 'School Building',
+                            'university': 'University Building',
+                            'apartments': 'Apartment Building',
+                            'house': 'House',
+                            'detached': 'Detached House'
+                        };
+                        buildingName = buildingNames[props.building] || 
+                                     props.building.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' Building';
+                    }
+                }
+                
+                // Last resort: Use coordinates or index
+                if (!buildingName) {
+                    if (feature.geometry && feature.geometry.coordinates) {
+                        let coords;
+                        if (feature.geometry.type === "Polygon") {
+                            coords = feature.geometry.coordinates[0][0];
+                        } else if (feature.geometry.type === "MultiPolygon") {
+                            coords = feature.geometry.coordinates[0][0][0];
+                        }
+                        
+                        if (coords) {
+                            const lng = coords[0].toFixed(3);
+                            const lat = coords[1].toFixed(3);
+                            buildingName = `Building at ${lat}, ${lng}`;
+                        }
+                    }
+                    
+                    if (!buildingName) {
+                        buildingName = `Building ${index + 1}`;
+                    }
+                }
+                
+                props.name = buildingName;
+                
+                // Enhanced building type with better filtering
+                let buildingType = null;
+                
+                // Priority order for type determination
+                if (props.amenity && props.amenity !== 'yes' && props.amenity !== 'building') {
+                    buildingType = props.amenity;
+                } else if (props.shop && props.shop !== 'yes' && props.shop !== 'building') {
+                    buildingType = props.shop;
+                } else if (props["building:use"] && props["building:use"] !== 'yes') {
+                    buildingType = props["building:use"];
+                } else if (props.building && props.building !== 'yes' && props.building !== 'roof') {
+                    buildingType = props.building;
+                } else if (props.leisure && props.leisure !== 'yes') {
+                    buildingType = props.leisure;
+                } else if (props.tourism && props.tourism !== 'yes') {
+                    buildingType = props.tourism;
+                } else {
+                    buildingType = 'building'; // Default fallback
+                }
+                
+                // Convert technical types to user-friendly names
+                const typeMapping = {
+                    'yes': 'Building',
+                    'building': 'Building',
+                    'roof': 'Building',
+                    'commercial': 'Commercial',
+                    'office': 'Office',
+                    'retail': 'Retail',
+                    'residential': 'Residential',
+                    'industrial': 'Industrial',
+                    'warehouse': 'Warehouse',
+                    'hotel': 'Hotel',
+                    'hospital': 'Hospital',
+                    'school': 'School',
+                    'university': 'University',
+                    'college': 'College',
+                    'exhibition_centre': 'Exhibition Centre',
+                    'convention_center': 'Convention Centre',
+                    'conference_centre': 'Conference Centre',
+                    'casino': 'Casino',
+                    'mall': 'Shopping Mall',
+                    'shopping_centre': 'Shopping Centre',
+                    'supermarket': 'Supermarket',
+                    'restaurant': 'Restaurant',
+                    'cafe': 'Cafe',
+                    'bank': 'Bank',
+                    'library': 'Library',
+                    'museum': 'Museum',
+                    'theatre': 'Theatre',
+                    'cinema': 'Cinema',
+                    'sports_centre': 'Sports Centre',
+                    'gym': 'Gymnasium',
+                    'church': 'Church',
+                    'mosque': 'Mosque',
+                    'temple': 'Temple',
+                    'government': 'Government',
+                    'public': 'Public Building',
+                    'mixed_use': 'Mixed Use',
+                    'apartments': 'Apartments',
+                    'house': 'House',
+                    'detached': 'House',
+                    'attraction': 'Attraction',
+                    'tower': 'Tower'
+                };
+                
+                props.type = typeMapping[buildingType] || 
+                           buildingType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                
+                // Calculate height and levels with better fallbacks
+                let height = parseFloat(props.height) || 
+                            parseFloat(props["building:height"]) || 
+                            parseFloat(props["building:min_height"]) || 
+                            null;
+                
+                let levels = parseInt(props["building:levels"]) || 
+                           parseInt(props["building:max_level"]) || 
+                           parseInt(props.levels) ||
+                           null;
+                
+                // If we have levels but no height, estimate height
+                if (!height && levels) {
+                    height = levels * 4; // 4 meters per level average
+                } 
+                // If we have height but no levels, estimate levels
+                else if (height && !levels) {
+                    levels = Math.max(1, Math.floor(height / 4));
+                }
+                // If we have neither, use defaults based on building type
+                else if (!height && !levels) {
+                    const defaultHeights = {
+                        'Exhibition Centre': 25,
+                        'Convention Centre': 20,
+                        'Conference Centre': 20,
+                        'Casino': 30,
+                        'Shopping Mall': 15,
+                        'Hotel': 40,
+                        'Office': 30,
+                        'Commercial': 20,
+                        'Residential': 25,
+                        'Hospital': 30,
+                        'University': 20,
+                        'College': 15,
+                        'School': 10,
+                        'Tower': 50
+                    };
+                    
+                    height = defaultHeights[props.type] || 15;
+                    levels = Math.max(1, Math.floor(height / 4));
+                }
+                
+                props.height = height;
+                props.levels = levels;
+                
+                // Determine area based on coordinates
+                if (feature.geometry && feature.geometry.coordinates) {
+                    let coords;
+                    if (feature.geometry.type === "Polygon") {
+                        coords = feature.geometry.coordinates[0][0];
+                    } else if (feature.geometry.type === "MultiPolygon") {
+                        coords = feature.geometry.coordinates[0][0][0];
+                    }
+                    
+                    if (coords) {
+                        const lng = coords[0];
+                        const lat = coords[1];
+                        
+                        if (lng > 50 && lng < 60 && lat > 20 && lat < 30) {
+                            props.area = "dubai";
+                        } else if (lng > 140 && lng < 150 && lat > -40 && lat < -30) {
+                            props.area = "melbourne";
+                        } else {
+                            props.area = "other";
+                        }
+                    }
+                }
+                
+                // Add some debug info
+                console.log(`Building ${index + 1}: "${props.name}" | Type: ${props.type} | Height: ${props.height}m | Levels: ${props.levels} | Area: ${props.area}`);
+            });
+            
+            // Add custom building
+            addCustomBuilding(data);
+            
+            console.log(`Total features processed: ${data.features.length}`);
+            return data;
+        }
+
+        // Add the custom building to the dataset
+        function addCustomBuilding(data) {
+            const customBuilding = {
+                "type": "Feature",
+                "properties": {
+                    "name": "Custom Building",
+                    "type": "custom",
+                    "height": 20,
+                    "levels": 2,
+                    "area": "melbourne",
+                    "custom": true
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[
+                        [144.96724145541484, -37.846019024801055],
+                        [144.96744145541484, -37.846019024801055],
+                        [144.96744145541484, -37.846219024801055],
+                        [144.96724145541484, -37.846219024801055],
+                        [144.96724145541484, -37.846019024801055]
+                    ]]
+                }
+            };
+            
+            data.features.push(customBuilding);
+        }
+
+        // Fallback data if GeoJSON file can't be loaded
+        function createFallbackData() {
+            console.log('Creating fallback data...');
+            return {
+                "type": "FeatureCollection",
+                "features": [
+                    // Melbourne Exhibition Centre (approximate)
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": "Melbourne Exhibition Centre",
+                            "type": "exhibition_centre",
+                            "height": 29,
+                            "levels": 7,
+                            "area": "melbourne"
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [144.9560315, -37.8239616],
+                                [144.9560535, -37.8240064],
+                                [144.9562146, -37.8243354],
+                                [144.9563098, -37.8245547],
+                                [144.9558522, -37.8247291],
+                                [144.95532, -37.8244828],
+                                [144.9560315, -37.8239616]
+                            ]]
+                        }
+                    },
+                    // Crown Melbourne (approximate)
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": "Crown Melbourne",
+                            "type": "casino",
+                            "height": 28,
+                            "levels": 2,
+                            "area": "melbourne"
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [144.9565177, -37.8236256],
+                                [144.9570072, -37.8247104],
+                                [144.9575571, -37.8248174],
+                                [144.9580215, -37.8228845],
+                                [144.9565177, -37.8236256]
+                            ]]
+                        }
+                    },
+                    // South Wharf DFO (approximate)
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": "South Wharf DFO",
+                            "type": "mall",
+                            "height": 16,
+                            "levels": 2,
+                            "area": "melbourne"
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [144.9503237, -37.8250978],
+                                [144.9506645, -37.825102],
+                                [144.9504704, -37.8243345],
+                                [144.9493851, -37.8241977],
+                                [144.9503237, -37.8250978]
+                            ]]
+                        }
+                    },
+                    // Custom building
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "name": "Custom Building",
+                            "type": "custom",
+                            "height": 20,
+                            "levels": 2,
+                            "area": "melbourne",
+                            "custom": true
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [144.96724145541484, -37.846019024801055],
+                                [144.96744145541484, -37.846019024801055],
+                                [144.96744145541484, -37.846219024801055],
+                                [144.96724145541484, -37.846219024801055],
+                                [144.96724145541484, -37.846019024801055]
+                            ]]
+                        }
+                    }
+                ]
+            };
+        }
+
+        // Manual data loading function for testing
+        function loadManualData() {
+            console.log('Loading manual test data...');
+            const testData = createFallbackData();
+            
+            // Update the map source
+            if (map.getSource('buildings')) {
+                map.getSource('buildings').setData(testData);
+                console.log('Updated existing source with test data');
+            } else {
+                console.log('No existing source found');
+            }
+            
+            // Fly to Melbourne to see the data
+            flyToMelbourne();
+        }
+
+        let extrusionEnabled = false;
+        let popup = null;
+        const tooltip = document.getElementById('tooltip');
+
+        map.on('load', async () => {
+            // Load building data from GeoJSON file
+            const buildingData = await loadBuildingData();
+            
+            console.log('Final building data loaded:', buildingData);
+            
+            // Add building source
+            map.addSource('buildings', {
+                'type': 'geojson',
+                'data': buildingData
+            });
+            
+            // Log the source data to verify
+            console.log('Map source added with features:', buildingData.features.length);
+
+            // Add building layer (2D)
+            map.addLayer({
+                'id': 'buildings-2d',
+                'type': 'fill',
+                'source': 'buildings',
+                'layout': {},
+                'paint': {
+                    'fill-color': [
+                        'case',
+                        ['==', ['get', 'area'], 'melbourne'], '#007cbf',
+                        ['==', ['get', 'area'], 'dubai'], '#ff6b35',
+                        ['==', ['get', 'custom'], true], '#28a745',
+                        '#6c757d'
+                    ],
+                    'fill-opacity': 0.7
+                }
+            });
+
+            // Add building outline
+            map.addLayer({
+                'id': 'buildings-outline',
+                'type': 'line',
+                'source': 'buildings',
+                'layout': {},
+                'paint': {
+                    'line-color': [
+                        'case',
+                        ['==', ['get', 'area'], 'melbourne'], '#005a8b',
+                        ['==', ['get', 'area'], 'dubai'], '#cc5429',
+                        ['==', ['get', 'custom'], true], '#1e7e34',
+                        '#495057'
+                    ],
+                    'line-width': 2
+                }
+            });
+
+            // Add building layer (3D extrusion) - initially hidden
+            map.addLayer({
+                'id': 'buildings-3d',
+                'type': 'fill-extrusion',
+                'source': 'buildings',
+                'layout': {
+                    'visibility': 'none'
+                },
+                'paint': {
+                    'fill-extrusion-color': [
+                        'case',
+                        ['==', ['get', 'area'], 'melbourne'], '#007cbf',
+                        ['==', ['get', 'area'], 'dubai'], '#ff6b35',
+                        ['==', ['get', 'custom'], true], '#28a745',
+                        '#6c757d'
+                    ],
+                    'fill-extrusion-height': ['get', 'height'],
+                    'fill-extrusion-base': 0,
+                    'fill-extrusion-opacity': 0.8
+                }
+            });
+
+            // Mouse enter event for hover effects
+            map.on('mouseenter', 'buildings-2d', (e) => {
+                map.getCanvas().style.cursor = 'pointer';
+                
+                const feature = e.features[0];
+                const coords = e.lngLat;
+                
+                // Show tooltip
+                tooltip.innerHTML = `
+                    <strong>${feature.properties.name}</strong><br>
+                    Type: ${feature.properties.type}<br>
+                    Levels: ${feature.properties.levels}
+                `;
+                tooltip.style.display = 'block';
+                
+                // Highlight building
+                map.setPaintProperty('buildings-2d', 'fill-opacity', [
+                    'case',
+                    ['==', ['get', 'name'], feature.properties.name], 1.0,
+                    0.7
+                ]);
+            });
+
+            // Mouse leave event
+            map.on('mouseleave', 'buildings-2d', () => {
+                map.getCanvas().style.cursor = '';
+                tooltip.style.display = 'none';
+                
+                // Reset highlight
+                map.setPaintProperty('buildings-2d', 'fill-opacity', 0.7);
+            });
+
+            // Mouse move event for tooltip positioning
+            map.on('mousemove', 'buildings-2d', (e) => {
+                const rect = map.getCanvas().getBoundingClientRect();
+                tooltip.style.left = e.point.x + rect.left + 10 + 'px';
+                tooltip.style.top = e.point.y + rect.top - 10 + 'px';
+            });
+
+            // Click event for popup
+            map.on('click', 'buildings-2d', (e) => {
+                const feature = e.features[0];
+                const coords = e.lngLat;
+                
+                // Close existing popup
+                if (popup) {
+                    popup.remove();
+                }
+                
+                // Create new popup
+                popup = new maplibregl.Popup({
+                    closeButton: true,
+                    closeOnClick: true
+                })
+                .setLngLat(coords)
+                .setHTML(`
+                    <div class="building-popup">
+                        <h3>${feature.properties.name}</h3>
+                        <p><strong>Type:</strong> ${feature.properties.type}</p>
+                        <p><strong>Levels:</strong> ${feature.properties.levels}</p>
+                        <p><strong>Height:</strong> ${feature.properties.height}m</p>
+                        <p><strong>Area:</strong> ${feature.properties.area}</p>
+                        ${feature.properties.custom ? '<p><strong>Custom Building</strong></p>' : ''}
+                    </div>
+                `)
+                .addTo(map);
+            });
+
+            // Same events for 3D layer
+            map.on('mouseenter', 'buildings-3d', (e) => {
+                map.getCanvas().style.cursor = 'pointer';
+                
+                const feature = e.features[0];
+                
+                tooltip.innerHTML = `
+                    <strong>${feature.properties.name}</strong><br>
+                    Type: ${feature.properties.type}<br>
+                    Levels: ${feature.properties.levels}
+                `;
+                tooltip.style.display = 'block';
+            });
+
+            map.on('mouseleave', 'buildings-3d', () => {
+                map.getCanvas().style.cursor = '';
+                tooltip.style.display = 'none';
+            });
+
+            map.on('mousemove', 'buildings-3d', (e) => {
+                const rect = map.getCanvas().getBoundingClientRect();
+                tooltip.style.left = e.point.x + rect.left + 10 + 'px';
+                tooltip.style.top = e.point.y + rect.top - 10 + 'px';
+            });
+
+            map.on('click', 'buildings-3d', (e) => {
+                const feature = e.features[0];
+                const coords = e.lngLat;
+                
+                if (popup) {
+                    popup.remove();
+                }
+                
+                popup = new maplibregl.Popup({
+                    closeButton: true,
+                    closeOnClick: true
+                })
+                .setLngLat(coords)
+                .setHTML(`
+                    <div class="building-popup">
+                        <h3>${feature.properties.name}</h3>
+                        <p><strong>Type:</strong> ${feature.properties.type}</p>
+                        <p><strong>Levels:</strong> ${feature.properties.levels}</p>
+                        <p><strong>Height:</strong> ${feature.properties.height}m</p>
+                        <p><strong>Area:</strong> ${feature.properties.area}</p>
+                        ${feature.properties.custom ? '<p><strong>Custom Building</strong></p>' : ''}
+                    </div>
+                `)
+                .addTo(map);
+            });
+        });
+
+        // Navigation functions
+        function flyToMelbourne() {
+            map.flyTo({
+                center: [144.955, -37.825],
+                zoom: 16,
+                pitch: extrusionEnabled ? 45 : 0,
+                duration: 2000
+            });
+        }
+
+        function flyToDubai() {
+            map.flyTo({
+                center: [55.1507304, 24.9607418],
+                zoom: 15,
+                pitch: extrusionEnabled ? 45 : 0,
+                duration: 2000
+            });
+        }
+
+        function toggleExtrusion() {
+            extrusionEnabled = !extrusionEnabled;
+            
+            if (extrusionEnabled) {
+                map.setLayoutProperty('buildings-2d', 'visibility', 'none');
+                map.setLayoutProperty('buildings-outline', 'visibility', 'none');
+                map.setLayoutProperty('buildings-3d', 'visibility', 'visible');
+                map.setPitch(45);
+            } else {
+                map.setLayoutProperty('buildings-2d', 'visibility', 'visible');
+                map.setLayoutProperty('buildings-outline', 'visibility', 'visible');
+                map.setLayoutProperty('buildings-3d', 'visibility', 'none');
+                map.setPitch(0);
+            }
+        }
+
+        // Add navigation controls
+        map.addControl(new maplibregl.NavigationControl());
+    </script>
+</body>
+</html>
