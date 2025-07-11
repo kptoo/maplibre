@@ -101,7 +101,30 @@
         // Initialize the map
         const map = new maplibregl.Map({
             container: 'map',
-            style: 'https://api.maptiler.com/maps/streets-v2/style.json?key=nMMIxEwKTVXehxRK6yKg', // Detailed street map
+            style: {
+                "version": 8,
+                "sources": {
+                    "osm": {
+                        "type": "raster",
+                        "tiles": [
+                            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png", 
+                            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        ],
+                        "tileSize": 256,
+                        "attribution": "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors"
+                    }
+                },
+                "layers": [
+                    {
+                        "id": "osm",
+                        "type": "raster",
+                        "source": "osm",
+                        "minzoom": 0,
+                        "maxzoom": 19
+                    }
+                ]
+            },
             center: [144.955, -37.825], // Start at Melbourne
             zoom: 16,
             pitch: 0,
@@ -187,11 +210,15 @@
             data.features.forEach((feature, index) => {
                 const props = feature.properties;
                 
-                // Enhanced name selection with better fallbacks
+                // Enhanced name selection with priority for extracted_names
                 let buildingName = null;
                 
-                // First priority: Actual names
-                if (props.name && props.name !== 'yes' && props.name !== 'building') {
+                // First priority: extracted_names.en (if available)
+                if (props.extracted_names && props.extracted_names.en) {
+                    buildingName = props.extracted_names.en;
+                }
+                // Second priority: Actual names
+                else if (props.name && props.name !== 'yes' && props.name !== 'building') {
                     buildingName = props.name;
                 } else if (props.alt_name && props.alt_name !== 'yes') {
                     buildingName = props.alt_name;
@@ -203,14 +230,14 @@
                     buildingName = props["addr:housename"];
                 }
                 
-                // Second priority: Address-based names
+                // Third priority: Address-based names
                 if (!buildingName && props["addr:housenumber"] && props["addr:street"]) {
                     buildingName = `${props["addr:housenumber"]} ${props["addr:street"]}`;
                 } else if (!buildingName && props["addr:street"]) {
                     buildingName = `Building on ${props["addr:street"]}`;
                 }
                 
-                // Third priority: Generate descriptive names based on function
+                // Fourth priority: Generate descriptive names based on function
                 if (!buildingName) {
                     if (props.amenity && props.amenity !== 'yes') {
                         const amenityNames = {
@@ -281,6 +308,9 @@
                 }
                 
                 props.name = buildingName;
+                
+                // Store the extracted name for hover display
+                props.hoverName = (props.extracted_names && props.extracted_names.en) ? props.extracted_names.en : buildingName;
                 
                 // Enhanced building type with better filtering
                 let buildingType = null;
@@ -419,7 +449,7 @@
                 }
                 
                 // Add some debug info
-                console.log(`Building ${index + 1}: "${props.name}" | Type: ${props.type} | Height: ${props.height}m | Levels: ${props.levels} | Area: ${props.area}`);
+                console.log(`Building ${index + 1}: "${props.name}" | Hover: "${props.hoverName}" | Type: ${props.type} | Height: ${props.height}m | Levels: ${props.levels} | Area: ${props.area}`);
             });
             
             // Add custom building
@@ -572,6 +602,7 @@
 
         let extrusionEnabled = false;
         let popup = null;
+        let selectedBuildingName = null; // Track selected building
         const tooltip = document.getElementById('tooltip');
 
         map.on('load', async () => {
@@ -662,14 +693,18 @@
 
         // Function to add building layers
         function addBuildingLayers() {
-            // Add building layer (2D) - using default OSM building style
+            // Add building layer (2D) with dynamic coloring
             map.addLayer({
                 'id': 'buildings-2d',
                 'type': 'fill',
                 'source': 'buildings',
                 'layout': {},
                 'paint': {
-                    'fill-color': '#d6d1ca', // Default OSM building color
+                    'fill-color': [
+                        'case',
+                        ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                        '#d6d1ca' // Default: OSM building color
+                    ],
                     'fill-opacity': 0.7,
                     'fill-outline-color': '#a8a08a'
                 }
@@ -687,7 +722,7 @@
                 }
             });
 
-            // Add building layer (3D extrusion) - initially hidden
+            // Add building layer (3D extrusion) with dynamic coloring
             map.addLayer({
                 'id': 'buildings-3d',
                 'type': 'fill-extrusion',
@@ -696,7 +731,11 @@
                     'visibility': extrusionEnabled ? 'visible' : 'none'
                 },
                 'paint': {
-                    'fill-extrusion-color': '#d6d1ca', // Default OSM building color
+                    'fill-extrusion-color': [
+                        'case',
+                        ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                        '#d6d1ca' // Default: OSM building color
+                    ],
                     'fill-extrusion-height': ['get', 'height'],
                     'fill-extrusion-base': 0,
                     'fill-extrusion-opacity': 0.8
@@ -711,6 +750,23 @@
             }
         }
 
+        // Function to update building colors
+        function updateBuildingColors() {
+            // Update 2D layer colors
+            map.setPaintProperty('buildings-2d', 'fill-color', [
+                'case',
+                ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                '#d6d1ca' // Default: OSM building color
+            ]);
+            
+            // Update 3D layer colors
+            map.setPaintProperty('buildings-3d', 'fill-extrusion-color', [
+                'case',
+                ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                '#d6d1ca' // Default: OSM building color
+            ]);
+        }
+
         // Function to add building event listeners
         function addBuildingEventListeners() {
             // Mouse enter event for hover effects (2D)
@@ -719,24 +775,27 @@
                 
                 const feature = e.features[0];
                 
-                tooltip.innerHTML = `
-                    <strong>${feature.properties.name}</strong><br>
-                    Type: ${feature.properties.type}<br>
-                    Levels: ${feature.properties.levels}
-                `;
+                // Use hoverName (extracted_names.en) for tooltip display
+                tooltip.innerHTML = `<strong>${feature.properties.hoverName}</strong>`;
                 tooltip.style.display = 'block';
                 
-                map.setPaintProperty('buildings-2d', 'fill-opacity', [
-                    'case',
-                    ['==', ['get', 'name'], feature.properties.name], 1.0,
-                    0.7
-                ]);
+                // Apply hover effect only if not selected
+                if (feature.properties.name !== selectedBuildingName) {
+                    map.setPaintProperty('buildings-2d', 'fill-color', [
+                        'case',
+                        ['==', ['get', 'name'], feature.properties.name], '#7BB3F0', // Hover: lighter blue
+                        ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                        '#d6d1ca' // Default: OSM building color
+                    ]);
+                }
             });
 
             map.on('mouseleave', 'buildings-2d', () => {
                 map.getCanvas().style.cursor = '';
                 tooltip.style.display = 'none';
-                map.setPaintProperty('buildings-2d', 'fill-opacity', 0.7);
+                
+                // Reset to normal colors (keeping selected building blue)
+                updateBuildingColors();
             });
 
             map.on('mousemove', 'buildings-2d', (e) => {
@@ -748,6 +807,9 @@
             map.on('click', 'buildings-2d', (e) => {
                 const feature = e.features[0];
                 const coords = e.lngLat;
+                
+                // Update selected building
+                selectedBuildingName = feature.properties.name;
                 
                 // Hide tooltip when popup opens
                 tooltip.style.display = 'none';
@@ -763,18 +825,13 @@
                 .setLngLat(coords)
                 .setHTML(`
                     <div class="building-popup">
-                        <h3>${feature.properties.name}</h3>
-                        <p><strong>Type:</strong> ${feature.properties.type}</p>
-                        <p><strong>Levels:</strong> ${feature.properties.levels}</p>
-                        <p><strong>Height:</strong> ${feature.properties.height}m</p>
-                        <p><strong>Area:</strong> ${feature.properties.area}</p>
-                        ${feature.properties.custom ? '<p><strong>Custom Building</strong></p>' : ''}
+                        <h3>${feature.properties.hoverName}</h3>
                     </div>
                 `)
                 .addTo(map);
                 
-                // Reset building opacity when popup opens
-                map.setPaintProperty('buildings-2d', 'fill-opacity', 0.7);
+                // Update building colors to show selection
+                updateBuildingColors();
                 
                 // Ensure tooltip stays hidden while popup is open
                 popup.on('close', () => {
@@ -788,17 +845,27 @@
                 
                 const feature = e.features[0];
                 
-                tooltip.innerHTML = `
-                    <strong>${feature.properties.name}</strong><br>
-                    Type: ${feature.properties.type}<br>
-                    Levels: ${feature.properties.levels}
-                `;
+                // Use hoverName (extracted_names.en) for tooltip display
+                tooltip.innerHTML = `<strong>${feature.properties.hoverName}</strong>`;
                 tooltip.style.display = 'block';
+                
+                // Apply hover effect only if not selected
+                if (feature.properties.name !== selectedBuildingName) {
+                    map.setPaintProperty('buildings-3d', 'fill-extrusion-color', [
+                        'case',
+                        ['==', ['get', 'name'], feature.properties.name], '#7BB3F0', // Hover: lighter blue
+                        ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                        '#d6d1ca' // Default: OSM building color
+                    ]);
+                }
             });
 
             map.on('mouseleave', 'buildings-3d', () => {
                 map.getCanvas().style.cursor = '';
                 tooltip.style.display = 'none';
+                
+                // Reset to normal colors (keeping selected building blue)
+                updateBuildingColors();
             });
 
             map.on('mousemove', 'buildings-3d', (e) => {
@@ -810,6 +877,9 @@
             map.on('click', 'buildings-3d', (e) => {
                 const feature = e.features[0];
                 const coords = e.lngLat;
+                
+                // Update selected building
+                selectedBuildingName = feature.properties.name;
                 
                 // Hide tooltip when popup opens
                 tooltip.style.display = 'none';
@@ -824,15 +894,13 @@
                 .setLngLat(coords)
                 .setHTML(`
                     <div class="building-popup">
-                        <h3>${feature.properties.name}</h3>
-                        <p><strong>Type:</strong> ${feature.properties.type}</p>
-                        <p><strong>Levels:</strong> ${feature.properties.levels}</p>
-                        <p><strong>Height:</strong> ${feature.properties.height}m</p>
-                        <p><strong>Area:</strong> ${feature.properties.area}</p>
-                        ${feature.properties.custom ? '<p><strong>Custom Building</strong></p>' : ''}
+                        <h3>${feature.properties.hoverName}</h3>
                     </div>
                 `)
                 .addTo(map);
+                
+                // Update building colors to show selection
+                updateBuildingColors();
                 
                 // Ensure tooltip stays hidden while popup is open
                 popup.on('close', () => {
