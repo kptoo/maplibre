@@ -93,7 +93,6 @@
     <div class="controls">
         <button onclick="flyToMelbourne()">Melbourne</button>
         <button onclick="flyToDubai()">Dubai</button>
-        <button onclick="toggleExtrusion()">Toggle 3D</button>
     </div>
     <div id="tooltip" class="tooltip"></div>
 
@@ -127,7 +126,7 @@
             },
             center: [144.955, -37.825], // Start at Melbourne
             zoom: 16,
-            pitch: 0,
+            pitch: 45,
             bearing: 0
         });
 
@@ -312,6 +311,53 @@
                 // Store the extracted name for hover display
                 props.hoverName = (props.extracted_names && props.extracted_names.en) ? props.extracted_names.en : buildingName;
                 
+                // Determine exhibition centre section based on coordinates for Melbourne Exhibition Centre buildings
+                if (props.hoverName === "Melbourne Exhibition Centre" && feature.geometry && feature.geometry.coordinates) {
+                    let coords;
+                    if (feature.geometry.type === "Polygon") {
+                        coords = feature.geometry.coordinates[0][0];
+                    } else if (feature.geometry.type === "MultiPolygon") {
+                        coords = feature.geometry.coordinates[0][0][0];
+                    }
+                    
+                    if (coords) {
+                        const lng = coords[0];
+                        const lat = coords[1];
+                        
+                        // Assign section based on approximate coordinates and create unique identifiers
+                        // Convention Centre (center-north area)
+                        if (lat > -37.8255 && lng > 144.951 && lng < 144.954) {
+                            props.exhibitionSection = "convention";
+                            props.sectionName = "Convention Centre";
+                            props.uniqueId = "melbourne-convention-centre";
+                            props.name = "Convention Centre"; // Make name unique for selection
+                        }
+                        // Exhibition Centre Doors 11-21 (south area)
+                        else if (lat < -37.826 && lng > 144.950 && lng < 144.952) {
+                            props.exhibitionSection = "doors11-21";
+                            props.sectionName = "Exhibition Centre Doors 11-21";
+                            props.uniqueId = "melbourne-doors-11-21";
+                            props.name = "Exhibition Centre Doors 11-21"; // Make name unique for selection
+                        }
+                        // Exhibition Centre Doors 1-10 (east area)
+                        else if (lng > 144.954) {
+                            props.exhibitionSection = "doors1-10";
+                            props.sectionName = "Exhibition Centre Doors 1-10";
+                            props.uniqueId = "melbourne-doors-1-10";
+                            props.name = "Exhibition Centre Doors 1-10"; // Make name unique for selection
+                        }
+                        else {
+                            props.exhibitionSection = "other";
+                            props.sectionName = "Melbourne Exhibition Centre";
+                            props.uniqueId = props.name + "-" + index;
+                        }
+                    }
+                } else {
+                    props.exhibitionSection = "none";
+                    props.sectionName = props.hoverName;
+                    props.uniqueId = props.name + "-" + index;
+                }
+                
                 // Enhanced building type with better filtering
                 let buildingType = null;
                 
@@ -449,7 +495,7 @@
                 }
                 
                 // Add some debug info
-                console.log(`Building ${index + 1}: "${props.name}" | Hover: "${props.hoverName}" | Type: ${props.type} | Height: ${props.height}m | Levels: ${props.levels} | Area: ${props.area}`);
+                console.log(`Building ${index + 1}: "${props.name}" | Hover: "${props.hoverName}" | Section: "${props.sectionName}" | Type: ${props.type} | Height: ${props.height}m | Levels: ${props.levels} | Area: ${props.area}`);
             });
             
             // Add custom building
@@ -470,7 +516,10 @@
                     "height": 20,
                     "levels": 2,
                     "area": "melbourne",
-                    "custom": true
+                    "custom": true,
+                    "exhibitionSection": "none",
+                    "sectionName": "Custom Building",
+                    "uniqueId": "custom-building-melbourne"
                 },
                 "geometry": {
                     "type": "Polygon",
@@ -497,12 +546,15 @@
                     {
                         "type": "Feature",
                         "properties": {
-                            "name": "Melbourne Exhibition Centre",
+                            "name": "Convention Centre",
                             "hoverName": "Melbourne Exhibition Centre",
                             "type": "exhibition_centre",
                             "height": 29,
                             "levels": 7,
-                            "area": "melbourne"
+                            "area": "melbourne",
+                            "exhibitionSection": "convention",
+                            "sectionName": "Convention Centre",
+                            "uniqueId": "melbourne-convention-centre"
                         },
                         "geometry": {
                             "type": "Polygon",
@@ -526,7 +578,10 @@
                             "type": "casino",
                             "height": 28,
                             "levels": 2,
-                            "area": "melbourne"
+                            "area": "melbourne",
+                            "exhibitionSection": "none",
+                            "sectionName": "Crown Melbourne",
+                            "uniqueId": "crown-melbourne"
                         },
                         "geometry": {
                             "type": "Polygon",
@@ -548,7 +603,10 @@
                             "type": "mall",
                             "height": 16,
                             "levels": 2,
-                            "area": "melbourne"
+                            "area": "melbourne",
+                            "exhibitionSection": "none",
+                            "sectionName": "South Wharf DFO",
+                            "uniqueId": "south-wharf-dfo"
                         },
                         "geometry": {
                             "type": "Polygon",
@@ -571,7 +629,10 @@
                             "height": 20,
                             "levels": 2,
                             "area": "melbourne",
-                            "custom": true
+                            "custom": true,
+                            "exhibitionSection": "none",
+                            "sectionName": "Custom Building",
+                            "uniqueId": "custom-building-melbourne"
                         },
                         "geometry": {
                             "type": "Polygon",
@@ -588,26 +649,7 @@
             };
         }
 
-        // Manual data loading function for testing
-        function loadManualData() {
-            console.log('Loading manual test data...');
-            const testData = createFallbackData();
-            
-            // Update the map source
-            if (map.getSource('buildings')) {
-                map.getSource('buildings').setData(testData);
-                console.log('Updated existing source with test data');
-            } else {
-                console.log('No existing source found');
-            }
-            
-            // Fly to Melbourne to see the data
-            flyToMelbourne();
-        }
-
-        let extrusionEnabled = false;
-        let popup = null;
-        let selectedBuildingName = null; // Track selected building
+        let selectedBuildingId = null; // Track selected building by unique ID
         const tooltip = document.getElementById('tooltip');
 
         map.on('load', async () => {
@@ -637,7 +679,7 @@
             map.flyTo({
                 center: [144.955, -37.825],
                 zoom: 16,
-                pitch: extrusionEnabled ? 45 : 0,
+                pitch: 45,
                 duration: 2000
             });
         }
@@ -646,99 +688,26 @@
             map.flyTo({
                 center: [55.1507304, 24.9607418],
                 zoom: 15,
-                pitch: extrusionEnabled ? 45 : 0,
+                pitch: 45,
                 duration: 2000
             });
         }
 
-        function toggleExtrusion() {
-            extrusionEnabled = !extrusionEnabled;
-            
-            if (extrusionEnabled) {
-                map.setLayoutProperty('buildings-2d', 'visibility', 'none');
-                map.setLayoutProperty('buildings-outline', 'visibility', 'none');
-                map.setLayoutProperty('buildings-3d', 'visibility', 'visible');
-                map.setPitch(45);
-            } else {
-                map.setLayoutProperty('buildings-2d', 'visibility', 'visible');
-                map.setLayoutProperty('buildings-outline', 'visibility', 'visible');
-                map.setLayoutProperty('buildings-3d', 'visibility', 'none');
-                map.setPitch(0);
-            }
-        }
-
-        // Change basemap function
-        function changeBasemap() {
-            const selectedBasemap = document.getElementById('basemap-select').value;
-            const newStyle = basemapStyles[selectedBasemap];
-            
-            // Store the current buildings data
-            const buildingsData = map.getSource('buildings')?._data;
-            
-            // Set the new style
-            map.setStyle(newStyle);
-            
-            // Re-add building layers when style loads
-            map.once('style.load', () => {
-                if (buildingsData) {
-                    // Re-add building source
-                    map.addSource('buildings', {
-                        'type': 'geojson',
-                        'data': buildingsData
-                    });
-                    
-                    // Re-add all the building layers
-                    addBuildingLayers();
-                    
-                    // Re-add event listeners
-                    addBuildingEventListeners();
-                }
-            });
-        }
-
-        // Function to add building layers
+        // Function to add building layers (3D only)
         function addBuildingLayers() {
-            // Add building layer (2D) with dynamic coloring
-            map.addLayer({
-                'id': 'buildings-2d',
-                'type': 'fill',
-                'source': 'buildings',
-                'layout': {},
-                'paint': {
-                    'fill-color': [
-                        'case',
-                        ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
-                        '#d6d1ca' // Default: OSM building color
-                    ],
-                    'fill-opacity': 0.7,
-                    'fill-outline-color': '#a8a08a'
-                }
-            });
-
-            // Add building outline
-            map.addLayer({
-                'id': 'buildings-outline',
-                'type': 'line',
-                'source': 'buildings',
-                'layout': {},
-                'paint': {
-                    'line-color': '#a8a08a', // Default OSM building outline
-                    'line-width': 1
-                }
-            });
-
-            // Add building layer (3D extrusion) with dynamic coloring
+            // Add building layer (3D extrusion) with exhibition centre color coding
             map.addLayer({
                 'id': 'buildings-3d',
                 'type': 'fill-extrusion',
                 'source': 'buildings',
-                'layout': {
-                    'visibility': extrusionEnabled ? 'visible' : 'none'
-                },
+                'layout': {},
                 'paint': {
                     'fill-extrusion-color': [
                         'case',
-                        ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                        ['==', ['get', 'uniqueId'], ['literal', selectedBuildingId || '']], '#4A90E2', // Selected: blue
+                        ['==', ['get', 'exhibitionSection'], 'convention'], '#FF8C00', // Convention Centre: orange
+                        ['==', ['get', 'exhibitionSection'], 'doors11-21'], '#FF1493', // Exhibition Doors 11-21: pink/magenta
+                        ['==', ['get', 'exhibitionSection'], 'doors1-10'], '#FFD700', // Exhibition Doors 1-10: yellow
                         '#d6d1ca' // Default: OSM building color
                     ],
                     'fill-extrusion-height': ['get', 'height'],
@@ -746,105 +715,24 @@
                     'fill-extrusion-opacity': 0.8
                 }
             });
-            
-            // Update layer visibility based on current extrusion state
-            if (extrusionEnabled) {
-                map.setLayoutProperty('buildings-2d', 'visibility', 'none');
-                map.setLayoutProperty('buildings-outline', 'visibility', 'none');
-                map.setLayoutProperty('buildings-3d', 'visibility', 'visible');
-            }
         }
 
         // Function to update building colors
         function updateBuildingColors() {
-            // Update 2D layer colors
-            map.setPaintProperty('buildings-2d', 'fill-color', [
-                'case',
-                ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
-                '#d6d1ca' // Default: OSM building color
-            ]);
-            
             // Update 3D layer colors
             map.setPaintProperty('buildings-3d', 'fill-extrusion-color', [
                 'case',
-                ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                ['==', ['get', 'uniqueId'], ['literal', selectedBuildingId || '']], '#4A90E2', // Selected: blue
+                ['==', ['get', 'exhibitionSection'], 'convention'], '#FF8C00', // Convention Centre: orange
+                ['==', ['get', 'exhibitionSection'], 'doors11-21'], '#FF1493', // Exhibition Doors 11-21: pink/magenta
+                ['==', ['get', 'exhibitionSection'], 'doors1-10'], '#FFD700', // Exhibition Doors 1-10: yellow
                 '#d6d1ca' // Default: OSM building color
             ]);
         }
 
         // Function to add building event listeners
         function addBuildingEventListeners() {
-            // Mouse enter event for hover effects (2D)
-            map.on('mouseenter', 'buildings-2d', (e) => {
-                map.getCanvas().style.cursor = 'pointer';
-                
-                const feature = e.features[0];
-                
-                // Use hoverName (extracted_names.en) for tooltip display
-                tooltip.innerHTML = `<strong>${feature.properties.hoverName}</strong>`;
-                tooltip.style.display = 'block';
-                
-                // Apply hover effect only if not selected
-                if (feature.properties.name !== selectedBuildingName) {
-                    map.setPaintProperty('buildings-2d', 'fill-color', [
-                        'case',
-                        ['==', ['get', 'name'], feature.properties.name], '#7BB3F0', // Hover: lighter blue
-                        ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
-                        '#d6d1ca' // Default: OSM building color
-                    ]);
-                }
-            });
-
-            map.on('mouseleave', 'buildings-2d', () => {
-                map.getCanvas().style.cursor = '';
-                tooltip.style.display = 'none';
-                
-                // Reset to normal colors (keeping selected building blue)
-                updateBuildingColors();
-            });
-
-            map.on('mousemove', 'buildings-2d', (e) => {
-                const rect = map.getCanvas().getBoundingClientRect();
-                tooltip.style.left = e.point.x + rect.left + 10 + 'px';
-                tooltip.style.top = e.point.y + rect.top - 10 + 'px';
-            });
-
-            map.on('click', 'buildings-2d', (e) => {
-                const feature = e.features[0];
-                const coords = e.lngLat;
-                
-                // Update selected building
-                selectedBuildingName = feature.properties.name;
-                
-                // Hide tooltip when popup opens
-                tooltip.style.display = 'none';
-                map.getCanvas().style.cursor = '';
-                
-                // Close existing popup
-                if (popup) popup.remove();
-                
-                popup = new maplibregl.Popup({
-                    closeButton: true,
-                    closeOnClick: true
-                })
-                .setLngLat(coords)
-                .setHTML(`
-                    <div class="building-popup">
-                        <h3>${feature.properties.hoverName}</h3>
-                    </div>
-                `)
-                .addTo(map);
-                
-                // Update building colors to show selection
-                updateBuildingColors();
-                
-                // Ensure tooltip stays hidden while popup is open
-                popup.on('close', () => {
-                    popup = null;
-                });
-            });
-
-            // Same events for 3D layer
+            // Mouse enter event for hover effects (3D)
             map.on('mouseenter', 'buildings-3d', (e) => {
                 map.getCanvas().style.cursor = 'pointer';
                 
@@ -855,11 +743,14 @@
                 tooltip.style.display = 'block';
                 
                 // Apply hover effect only if not selected
-                if (feature.properties.name !== selectedBuildingName) {
+                if (feature.properties.uniqueId !== selectedBuildingId) {
                     map.setPaintProperty('buildings-3d', 'fill-extrusion-color', [
                         'case',
-                        ['==', ['get', 'name'], feature.properties.name], '#7BB3F0', // Hover: lighter blue
-                        ['==', ['get', 'name'], ['literal', selectedBuildingName || '']], '#4A90E2', // Selected: blue
+                        ['==', ['get', 'uniqueId'], feature.properties.uniqueId], '#7BB3F0', // Hover: lighter blue
+                        ['==', ['get', 'uniqueId'], ['literal', selectedBuildingId || '']], '#4A90E2', // Selected: blue
+                        ['==', ['get', 'exhibitionSection'], 'convention'], '#FF8C00', // Convention Centre: orange
+                        ['==', ['get', 'exhibitionSection'], 'doors11-21'], '#FF1493', // Exhibition Doors 11-21: pink/magenta
+                        ['==', ['get', 'exhibitionSection'], 'doors1-10'], '#FFD700', // Exhibition Doors 1-10: yellow
                         '#d6d1ca' // Default: OSM building color
                     ]);
                 }
@@ -883,8 +774,8 @@
                 const feature = e.features[0];
                 const coords = e.lngLat;
                 
-                // Update selected building
-                selectedBuildingName = feature.properties.name;
+                // Update selected building using unique ID
+                selectedBuildingId = feature.properties.uniqueId;
                 
                 // Hide tooltip when popup opens
                 tooltip.style.display = 'none';
@@ -913,6 +804,8 @@
                 });
             });
         }
+
+        let popup = null;
 
         // Add navigation controls
         map.addControl(new maplibregl.NavigationControl());
