@@ -310,11 +310,8 @@
                 
                 props.name = buildingName;
                 
-                // Store the extracted name for hover display
-                props.hoverName = (props.extracted_names && props.extracted_names.en) ? props.extracted_names.en : buildingName;
-                
                 // Determine exhibition centre section based on coordinates for Melbourne Exhibition Centre buildings
-                if (props.hoverName === "Melbourne Exhibition Centre" && feature.geometry && feature.geometry.coordinates) {
+                if (buildingName === "Melbourne Exhibition Centre" && feature.geometry && feature.geometry.coordinates) {
                     let coords;
                     if (feature.geometry.type === "Polygon") {
                         coords = feature.geometry.coordinates[0][0];
@@ -332,32 +329,37 @@
                             props.exhibitionSection = "convention";
                             props.sectionName = "Convention Centre";
                             props.uniqueId = "melbourne-convention-centre";
-                            props.name = "Convention Centre"; // Make name unique for selection
+                            props.name = "Convention Centre"; // Use unique name for display
+                            props.displayName = "Convention Centre"; // For hover and click
                         }
                         // Exhibition Centre Doors 11-21 (south area)
                         else if (lat < -37.826 && lng > 144.950 && lng < 144.952) {
                             props.exhibitionSection = "doors11-21";
                             props.sectionName = "Exhibition Centre Doors 11-21";
                             props.uniqueId = "melbourne-doors-11-21";
-                            props.name = "Exhibition Centre Doors 11-21"; // Make name unique for selection
+                            props.name = "Exhibition Centre Doors 11-21"; // Use unique name for display
+                            props.displayName = "Exhibition Centre Doors 11-21"; // For hover and click
                         }
                         // Exhibition Centre Doors 1-10 (east area)
                         else if (lng > 144.954) {
                             props.exhibitionSection = "doors1-10";
                             props.sectionName = "Exhibition Centre Doors 1-10";
                             props.uniqueId = "melbourne-doors-1-10";
-                            props.name = "Exhibition Centre Doors 1-10"; // Make name unique for selection
+                            props.name = "Exhibition Centre Doors 1-10"; // Use unique name for display
+                            props.displayName = "Exhibition Centre Doors 1-10"; // For hover and click
                         }
                         else {
                             props.exhibitionSection = "other";
                             props.sectionName = "Melbourne Exhibition Centre";
                             props.uniqueId = props.name + "-" + index;
+                            props.displayName = props.name;
                         }
                     }
                 } else {
                     props.exhibitionSection = "none";
-                    props.sectionName = props.hoverName;
-                    props.uniqueId = props.name + "-" + index;
+                    props.sectionName = buildingName;
+                    props.uniqueId = buildingName + "-" + index;
+                    props.displayName = buildingName; // For hover and click
                 }
                 
                 // Enhanced building type with better filtering
@@ -497,7 +499,7 @@
                 }
                 
                 // Add some debug info
-                console.log(`Building ${index + 1}: "${props.name}" | Hover: "${props.hoverName}" | Section: "${props.sectionName}" | Type: ${props.type} | Height: ${props.height}m | Levels: ${props.levels} | Area: ${props.area}`);
+                console.log(`Building ${index + 1}: "${props.name}" | Display: "${props.displayName}" | Section: "${props.sectionName}" | Type: ${props.type} | Height: ${props.height}m | Levels: ${props.levels} | Area: ${props.area}`);
             });
             
             // Add custom building
@@ -513,7 +515,7 @@
                 "type": "Feature",
                 "properties": {
                     "name": "Custom Building",
-                    "hoverName": "Custom Building",
+                    "displayName": "Custom Building",
                     "type": "custom",
                     "height": 20,
                     "levels": 2,
@@ -549,7 +551,7 @@
                         "type": "Feature",
                         "properties": {
                             "name": "Convention Centre",
-                            "hoverName": "Melbourne Exhibition Centre",
+                            "displayName": "Convention Centre",
                             "type": "exhibition_centre",
                             "height": 29,
                             "levels": 7,
@@ -576,7 +578,7 @@
                         "type": "Feature",
                         "properties": {
                             "name": "Crown Melbourne",
-                            "hoverName": "Crown Melbourne",
+                            "displayName": "Crown Melbourne",
                             "type": "casino",
                             "height": 28,
                             "levels": 2,
@@ -601,7 +603,7 @@
                         "type": "Feature",
                         "properties": {
                             "name": "South Wharf DFO",
-                            "hoverName": "South Wharf DFO",
+                            "displayName": "South Wharf DFO",
                             "type": "mall",
                             "height": 16,
                             "levels": 2,
@@ -626,7 +628,7 @@
                         "type": "Feature",
                         "properties": {
                             "name": "Custom Building",
-                            "hoverName": "Custom Building",
+                            "displayName": "Custom Building",
                             "type": "custom",
                             "height": 20,
                             "levels": 2,
@@ -740,8 +742,8 @@
                 
                 const feature = e.features[0];
                 
-                // Use hoverName (extracted_names.en) for tooltip display
-                tooltip.innerHTML = `<strong>${feature.properties.hoverName}</strong>`;
+                // Use displayName for tooltip display (shows unique names for Exhibition Centre sections)
+                tooltip.innerHTML = `<strong>${feature.properties.displayName}</strong>`;
                 tooltip.style.display = 'block';
                 
                 // Apply hover effect only if not selected
@@ -792,7 +794,7 @@
                 .setLngLat(coords)
                 .setHTML(`
                     <div class="building-popup">
-                        <h3>${feature.properties.hoverName}</h3>
+                        <h3>${feature.properties.displayName}</h3>
                     </div>
                 `)
                 .addTo(map);
