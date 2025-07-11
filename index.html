@@ -127,7 +127,9 @@
             center: [144.955, -37.825], // Start at Melbourne
             zoom: 16,
             pitch: 45,
-            bearing: 0
+            bearing: 0,
+            minZoom: 1.5, // Prevent zooming out too far (world view fills screen)
+            maxZoom: 18 // Prevent zooming in too close (basemap stays visible)
         });
 
         // Function to load GeoJSON data from file
