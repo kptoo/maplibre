@@ -736,42 +736,52 @@
 
         // Function to add building event listeners
         function addBuildingEventListeners() {
-            // Mouse enter event for hover effects (3D)
-            map.on('mouseenter', 'buildings-3d', (e) => {
+            let currentHoveredId = null;
+
+            // Mouse move event - handles both enter and move
+            map.on('mousemove', 'buildings-3d', (e) => {
+                const feature = e.features[0];
+                const hoveredId = feature.properties.uniqueId;
+                
+                // Update cursor
                 map.getCanvas().style.cursor = 'pointer';
                 
-                const feature = e.features[0];
-                
-                // Use displayName for tooltip display (shows unique names for Exhibition Centre sections)
-                tooltip.innerHTML = `<strong>${feature.properties.displayName}</strong>`;
-                tooltip.style.display = 'block';
-                
-                // Apply hover effect only if not selected
-                if (feature.properties.uniqueId !== selectedBuildingId) {
-                    map.setPaintProperty('buildings-3d', 'fill-extrusion-color', [
-                        'case',
-                        ['==', ['get', 'uniqueId'], feature.properties.uniqueId], '#7BB3F0', // Hover: lighter blue
-                        ['==', ['get', 'uniqueId'], ['literal', selectedBuildingId || '']], '#4A90E2', // Selected: blue
-                        ['==', ['get', 'exhibitionSection'], 'convention'], '#FF8C00', // Convention Centre: orange
-                        ['==', ['get', 'exhibitionSection'], 'doors11-21'], '#FF1493', // Exhibition Doors 11-21: pink/magenta
-                        ['==', ['get', 'exhibitionSection'], 'doors1-10'], '#FFD700', // Exhibition Doors 1-10: yellow
-                        '#d6d1ca' // Default: OSM building color
-                    ]);
+                // Check if we're hovering over a different building
+                if (currentHoveredId !== hoveredId) {
+                    currentHoveredId = hoveredId;
+                    
+                    // Update tooltip content and position
+                    tooltip.innerHTML = `<strong>${feature.properties.displayName}</strong>`;
+                    tooltip.style.display = 'block';
+                    
+                    // Apply hover effect only if not selected
+                    if (hoveredId !== selectedBuildingId) {
+                        map.setPaintProperty('buildings-3d', 'fill-extrusion-color', [
+                            'case',
+                            ['==', ['get', 'uniqueId'], hoveredId], '#7BB3F0', // Hover: lighter blue
+                            ['==', ['get', 'uniqueId'], ['literal', selectedBuildingId || '']], '#4A90E2', // Selected: blue
+                            ['==', ['get', 'exhibitionSection'], 'convention'], '#FF8C00', // Convention Centre: orange
+                            ['==', ['get', 'exhibitionSection'], 'doors11-21'], '#FF1493', // Exhibition Doors 11-21: pink/magenta
+                            ['==', ['get', 'exhibitionSection'], 'doors1-10'], '#FFD700', // Exhibition Doors 1-10: yellow
+                            '#d6d1ca' // Default: OSM building color
+                        ]);
+                    }
                 }
+                
+                // Update tooltip position
+                const rect = map.getCanvas().getBoundingClientRect();
+                tooltip.style.left = e.point.x + rect.left + 10 + 'px';
+                tooltip.style.top = e.point.y + rect.top - 10 + 'px';
             });
 
+            // Mouse leave event - only fires when leaving the entire layer
             map.on('mouseleave', 'buildings-3d', () => {
+                currentHoveredId = null;
                 map.getCanvas().style.cursor = '';
                 tooltip.style.display = 'none';
                 
                 // Reset to normal colors (keeping selected building blue)
                 updateBuildingColors();
-            });
-
-            map.on('mousemove', 'buildings-3d', (e) => {
-                const rect = map.getCanvas().getBoundingClientRect();
-                tooltip.style.left = e.point.x + rect.left + 10 + 'px';
-                tooltip.style.top = e.point.y + rect.top - 10 + 'px';
             });
 
             map.on('click', 'buildings-3d', (e) => {
